@@ -1,0 +1,96 @@
+//@version=6
+indicator("STF AbsorptionFlow", overlay=true)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STF ABSORPTIONFLOW v6
+//
+// Uses plotshape() — no 500-label limit, dots on ALL historical bars.
+// Two dot types: GREEN at bar LOW (buyer), RED at bar HIGH (seller).
+// 4 size tiers per direction (tiny/small/normal/large).
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Inputs ────────────────────────────────────────────────────────────────────
+g1 = "Core Settings"
+profile  = input.string("Aggressive", "Profile", options=["Aggressive","Conservative"], group=g1)
+lookback = input.int(20, "Volume Lookback", minval=5, group=g1)
+
+g2 = "Display"
+show_upper = input.bool(true,  "Show Upper Dots (Seller)", group=g2)
+show_lower = input.bool(true,  "Show Lower Dots (Buyer)",  group=g2)
+show_large = input.bool(true,  "Show Large Bubble on Strong Signals", group=g2)
+large_thr  = input.float(72,   "Large Bubble Score Threshold", minval=0, maxval=100, step=0.5, group=g2)
+col_bull   = input.color(color.lime,  "Buyer Color",  group=g2)
+col_bear   = input.color(color.red,   "Seller Color", group=g2)
+
+// ── Bar Geometry ──────────────────────────────────────────────────────────────
+R    = high - low
+uw   = high - math.max(open, close)
+lw   = math.min(open, close) - low
+
+uw_pct    = R > 0 ? uw / R : 0.0
+lw_pct    = R > 0 ? lw / R : 0.0
+close_pct = R > 0 ? (close - low) / R : 0.5
+
+// ── Volume ────────────────────────────────────────────────────────────────────
+avg_vol   = ta.sma(volume, lookback)
+vol_ratio = volume / math.max(avg_vol, 1)
+
+// ── Score (0–100) ─────────────────────────────────────────────────────────────
+// Wick strength 40% + volume strength 35% + close confirmation 25%
+// Vol component: always contributes — scaled by vol_ratio, capped at 2× avg = full
+// Below-avg bars still get ~10–17 pts; high-vol bars get up to 35 pts
+vol_component = math.min(vol_ratio / 2.0, 1.0) * 35
+
+low_score  = math.round(lw_pct  * 40 + vol_component + close_pct       * 25)
+high_score = math.round(uw_pct  * 40 + vol_component + (1.0-close_pct) * 25)
+
+// ── Signal Conditions ─────────────────────────────────────────────────────────
+do_low  = lw > 0 or close_pct > 0.5          // any lower wick OR bullish close
+do_high = uw > 0 or close_pct < 0.5          // any upper wick OR bearish close
+
+if profile == "Conservative"
+    do_low  := lw_pct  >= 0.25 and vol_ratio >= 1.3
+    do_high := uw_pct  >= 0.25 and vol_ratio >= 1.3
+
+// ── Boolean gates ─────────────────────────────────────────────────────────────
+show_low  = do_low  and show_lower
+show_high = do_high and show_upper
+
+// ── plotshape — Buyer dots AT bar LOW (4 size tiers) ─────────────────────────
+plotshape(show_low  and low_score  <  35                                  ? low  : na,
+     title="Buy Tiny",   style=shape.circle, location=location.absolute,
+     size=size.tiny,   color=col_bull, editable=false)
+
+plotshape(show_low  and low_score  >= 35 and low_score  < 55              ? low  : na,
+     title="Buy Small",  style=shape.circle, location=location.absolute,
+     size=size.small,  color=col_bull, editable=false)
+
+plotshape(show_low  and low_score  >= 55 and low_score  < int(large_thr)  ? low  : na,
+     title="Buy Normal", style=shape.circle, location=location.absolute,
+     size=size.normal, color=col_bull, editable=false)
+
+plotshape(show_low  and show_large and low_score  >= int(large_thr)       ? low  : na,
+     title="Buy Large",  style=shape.circle, location=location.absolute,
+     size=size.large,  color=col_bull, editable=false)
+
+// ── plotshape — Seller dots AT bar HIGH (4 size tiers) ───────────────────────
+plotshape(show_high and high_score <  35                                  ? high : na,
+     title="Sell Tiny",  style=shape.circle, location=location.absolute,
+     size=size.tiny,   color=col_bear, editable=false)
+
+plotshape(show_high and high_score >= 35 and high_score < 55              ? high : na,
+     title="Sell Small", style=shape.circle, location=location.absolute,
+     size=size.small,  color=col_bear, editable=false)
+
+plotshape(show_high and high_score >= 55 and high_score < int(large_thr)  ? high : na,
+     title="Sell Normal",style=shape.circle, location=location.absolute,
+     size=size.normal, color=col_bear, editable=false)
+
+plotshape(show_high and show_large and high_score >= int(large_thr)       ? high : na,
+     title="Sell Large", style=shape.circle, location=location.absolute,
+     size=size.large,  color=col_bear, editable=false)
+
+// ── Data Window ───────────────────────────────────────────────────────────────
+plot(low_score,  "Low Score",  color=color.green,  display=display.data_window)
+plot(high_score, "High Score", color=color.red,    display=display.data_window)
+plot(vol_ratio,  "Vol Ratio",  color=color.yellow, display=display.data_window)

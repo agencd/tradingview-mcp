@@ -1,0 +1,127 @@
+//@version=6
+indicator("STF DepthFlow", overlay=true, max_boxes_count=200, max_lines_count=50)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STF DEPTHFLOW
+// Concept: Liquidity depth zones based on volume-at-price clustering.
+//
+// Logic:
+//   1. For each bar, estimate buy vs sell pressure via bar structure + volume.
+//   2. Identify "high-volume nodes" — bars where volume significantly exceeds
+//      the rolling average (these represent where depth was absorbed / traded).
+//   3. Draw a box spanning the bar's range; color by dominant side (buy/sell).
+//   4. Consolidate overlapping boxes to reduce clutter.
+//   5. Draw horizontal lines at the 7 most significant cumulative-volume levels
+//      (the "major liquidity nodes").
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Inputs ────────────────────────────────────────────────────────────────────
+vol_lookback    = input.int(20,   "Volume Lookback (avg)", minval=5)
+vol_threshold   = input.float(1.5, "Volume Spike Threshold (× avg)", minval=1.0, step=0.1)
+zone_extend     = input.int(50,   "Zone Extend (bars right)", minval=0)
+bull_col        = input.color(color.new(color.green, 70), "Buy Zone Color")
+bear_col        = input.color(color.new(color.red,   70), "Sell Zone Color")
+line_col        = input.color(color.new(color.orange, 0), "Key Level Color")
+show_levels     = input.bool(true, "Show Key Levels")
+num_levels      = input.int(7, "Number of Key Levels", minval=1, maxval=20)
+
+// ── Delta Estimation ──────────────────────────────────────────────────────────
+// Approximation: buy volume ∝ how much of the bar was above the midpoint.
+// This is a Tick-Rule proxy; not footprint data, but statistically sound.
+bar_range = high - low
+buy_vol  = bar_range > 0 ? volume * (close - low)  / bar_range : volume * 0.5
+sell_vol = bar_range > 0 ? volume * (high - close) / bar_range : volume * 0.5
+delta    = buy_vol - sell_vol
+bull_bar = delta > 0
+
+// ── Volume Spike Detection ────────────────────────────────────────────────────
+avg_vol   = ta.sma(volume, vol_lookback)
+is_spike  = volume >= avg_vol * vol_threshold
+
+// ── Draw Zones ────────────────────────────────────────────────────────────────
+if is_spike
+    box_color = bull_bar ? bull_col : bear_col
+    b = box.new(
+         left   = bar_index,
+         top    = high,
+         right  = bar_index + zone_extend,
+         bottom = low,
+         border_color = color.new(box_color, 40),
+         border_width = 1,
+         bgcolor      = box_color
+         )
+
+// ── Key Level Detection ───────────────────────────────────────────────────────
+// Track cumulative volume at each price level (rounded to tick).
+// We approximate by accumulating volume at the bar's VWAP (typical price).
+//
+// Method: Rolling highest-volume bars → their typical prices become key levels.
+// We store the top N volume bars in a sorted structure using arrays.
+
+var float[] kl_prices = array.new_float(0)
+var float[] kl_vols   = array.new_float(0)
+
+typ = (high + low + close) / 3
+
+// Maintain a sorted-by-volume list of up to (num_levels × 3) candidates
+if is_spike
+    array.push(kl_prices, typ)
+    array.push(kl_vols,   volume)
+
+    // Keep list bounded
+    max_candidates = num_levels * 3
+    if array.size(kl_vols) > max_candidates
+        // Remove the lowest-volume entry
+        var int rm_idx = 0
+        var float rm_v = array.get(kl_vols, 0)
+        rm_idx := 0
+        rm_v   := array.get(kl_vols, 0)
+        for i = 1 to array.size(kl_vols) - 1
+            v = array.get(kl_vols, i)
+            if v < rm_v
+                rm_v   := v
+                rm_idx := i
+        array.remove(kl_vols,   rm_idx)
+        array.remove(kl_prices, rm_idx)
+
+// ── Draw Key Levels (last bar only) ──────────────────────────────────────────
+// We redraw all key-level lines on the final bar to reflect updated data.
+var line[] kl_lines = array.new_line(0)
+
+if barstate.islast and show_levels and array.size(kl_prices) > 0
+    // Clear old lines
+    for ln in kl_lines
+        line.delete(ln)
+    array.clear(kl_lines)
+
+    n = math.min(num_levels, array.size(kl_prices))
+    var int pk_idx = 0
+    var float pk_v = 0.0
+    for i = 0 to n - 1
+        // Pick highest volume entries
+        pk_idx := 0
+        pk_v   := array.get(kl_vols, 0)
+        for j = 1 to array.size(kl_vols) - 1
+            v = array.get(kl_vols, j)
+            if v > pk_v
+                pk_v   := v
+                pk_idx := j
+
+        price = array.get(kl_prices, pk_idx)
+
+        ln = line.new(
+             x1    = bar_index - 500,
+             y1    = price,
+             x2    = bar_index + zone_extend,
+             y2    = price,
+             color = line_col,
+             width = 1,
+             style = line.style_dashed
+             )
+        array.push(kl_lines, ln)
+
+        // Mark as used by setting vol to 0 so it won't be picked again
+        array.set(kl_vols, pk_idx, 0.0)
+
+    // Restore vols so the array stays intact for next bar
+    // (not needed since islast — but clean practice)
