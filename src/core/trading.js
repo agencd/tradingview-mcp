@@ -8,12 +8,14 @@
  *   Buy side toggle  : .buy-OnZ1FRe5
  *   Sell side toggle : .sell-OnZ1FRe5
  *   Order type tabs  : [role=tab] — text "Market", "Limit", "Stop"
- *   Qty input        : inputs[inputmode="decimal"][0]  (Market order — no price field)
+ *   Qty input        : inputs[inputmode="decimal"][0]  (Market — no price field)
+ *   Limit/Stop price : inputs[inputmode="decimal"][0], qty at [1]
  *   Buy submit btn   : button where text starts "Buy" and className includes "blue"
  *   Sell submit btn  : button where text starts "Sell" and className includes "red"
  */
 import { evaluate } from '../connection.js';
 import { setSymbol } from './chart.js';
+import { getQuote } from './data.js';
 
 // ─── symbol normalizer ─────────────────────────────────────────────────────
 
@@ -31,7 +33,12 @@ function resolveSymbol(raw) {
   return ALIAS[key] || raw.toUpperCase();
 }
 
-// ─── helpers ───────────────────────────────────────────────────────────────
+// Round to nearest tick (default 0.25 for ES/NQ futures)
+function roundTick(price, tick = 0.25) {
+  return Math.round(price / tick) * tick;
+}
+
+// ─── DOM helpers ───────────────────────────────────────────────────────────
 
 async function js(code) {
   return evaluate(`(function(){ ${code} })()`);
@@ -48,23 +55,16 @@ async function ensureTradePanel() {
       if (!isActive) btn.click();
     }
   `);
-  // Give panel time to render
   await new Promise(r => setTimeout(r, 600));
 }
 
 async function clickBuySide() {
-  await js(`
-    var el = document.querySelector('.buy-OnZ1FRe5');
-    if (el) el.click();
-  `);
+  await js(`var el = document.querySelector('.buy-OnZ1FRe5'); if (el) el.click();`);
   await new Promise(r => setTimeout(r, 300));
 }
 
 async function clickSellSide() {
-  await js(`
-    var el = document.querySelector('.sell-OnZ1FRe5');
-    if (el) el.click();
-  `);
+  await js(`var el = document.querySelector('.sell-OnZ1FRe5'); if (el) el.click();`);
   await new Promise(r => setTimeout(r, 300));
 }
 
@@ -78,50 +78,137 @@ async function clickOrderTypeTab(label) {
   await new Promise(r => setTimeout(r, 300));
 }
 
-async function setQty(qty) {
-  const v = String(qty);
+async function setInput(index, value) {
+  const v = String(value);
   await js(`
     var inputs = document.querySelectorAll('input[inputmode="decimal"]');
-    if (inputs[0]) {
+    if (inputs[${index}]) {
       var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
-      setter.set.call(inputs[0], '${v}');
-      inputs[0].dispatchEvent(new Event('input', { bubbles: true }));
+      setter.set.call(inputs[${index}], '${v}');
+      inputs[${index}].dispatchEvent(new Event('input', { bubbles: true }));
     }
   `);
   await new Promise(r => setTimeout(r, 200));
 }
 
-// ─── public API ────────────────────────────────────────────────────────────
-
-/**
- * Place a market buy order for `qty` contracts.
- * @param {object} opts
- * @param {number} [opts.qty=1]
- * @param {string} [opts.symbol]  — e.g. "nq", "NQ1!", "ES1!"
- */
-export async function buyMarket({ qty = 1, symbol } = {}) {
-  const sym = resolveSymbol(symbol);
-  if (sym) await setSymbol({ symbol: sym });
-  await ensureTradePanel();
-  await clickBuySide();
-  await clickOrderTypeTab('Market');
-  await setQty(qty);
-
+async function clickBuyButton() {
   const result = await js(`
     var btns = document.querySelectorAll('button');
     for (var i = 0; i < btns.length; i++) {
       var b = btns[i];
       if (b.textContent.trim().startsWith('Buy') && b.className.includes('blue')) {
-        var txt = b.textContent.trim();
-        b.click();
-        return { clicked: true, text: txt };
+        var txt = b.textContent.trim(); b.click(); return { clicked: true, text: txt };
       }
     }
     return { clicked: false };
   `);
+  if (!result || !result.clicked) throw new Error('Buy submit button not found');
+  return result.text;
+}
 
-  if (!result || !result.clicked) {
-    throw new Error('Buy submit button not found — is the Trade panel open and a symbol loaded?');
+async function clickSellButton() {
+  const result = await js(`
+    var btns = document.querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++) {
+      var b = btns[i];
+      if (b.textContent.trim().startsWith('Sell') && b.className.includes('red')) {
+        var txt = b.textContent.trim(); b.click(); return { clicked: true, text: txt };
+      }
+    }
+    return { clicked: false };
+  `);
+  if (!result || !result.clicked) throw new Error('Sell submit button not found');
+  return result.text;
+}
+
+// ─── order helpers ─────────────────────────────────────────────────────────
+
+// Place a sell-stop order (used as stop loss for a long position)
+async function placeSellStop(price, qty) {
+  await clickSellSide();
+  await clickOrderTypeTab('Stop');
+  await setInput(0, roundTick(price)); // price
+  await setInput(1, qty);              // qty
+  await clickSellButton();
+  await new Promise(r => setTimeout(r, 400));
+}
+
+// Place a sell-limit order (take profit for a long position)
+async function placeSellLimit(price, qty) {
+  await clickSellSide();
+  await clickOrderTypeTab('Limit');
+  await setInput(0, roundTick(price)); // price
+  await setInput(1, qty);              // qty
+  await clickSellButton();
+  await new Promise(r => setTimeout(r, 400));
+}
+
+// Place a buy-stop order (used as stop loss for a short position)
+async function placeBuyStop(price, qty) {
+  await clickBuySide();
+  await clickOrderTypeTab('Stop');
+  await setInput(0, roundTick(price));
+  await setInput(1, qty);
+  await clickBuyButton();
+  await new Promise(r => setTimeout(r, 400));
+}
+
+// Place a buy-limit order (take profit for a short position)
+async function placeBuyLimit(price, qty) {
+  await clickBuySide();
+  await clickOrderTypeTab('Limit');
+  await setInput(0, roundTick(price));
+  await setInput(1, qty);
+  await clickBuyButton();
+  await new Promise(r => setTimeout(r, 400));
+}
+
+// ─── public API ────────────────────────────────────────────────────────────
+
+/**
+ * Place a market buy order, optionally with stop loss and take profit(s).
+ * @param {object} opts
+ * @param {number}   [opts.qty=1]      Number of contracts
+ * @param {string}   [opts.symbol]     e.g. "nq", "NQ1!"
+ * @param {number[]} [opts.tp=[]]      Take profit levels in points above entry (e.g. [10, 15])
+ * @param {number}   [opts.sl]         Stop loss in points below entry (e.g. 15)
+ */
+export async function buyMarket({ qty = 1, symbol, tp = [], sl } = {}) {
+  const sym = resolveSymbol(symbol);
+  if (sym) await setSymbol({ symbol: sym });
+
+  // Snapshot price before entry if TP/SL requested
+  let entryPrice = null;
+  if (tp.length > 0 || sl != null) {
+    const quote = await getQuote({});
+    entryPrice = quote.last ?? quote.close;
+    if (!entryPrice) throw new Error('Could not get current price for TP/SL calculation');
+  }
+
+  await ensureTradePanel();
+  await clickBuySide();
+  await clickOrderTypeTab('Market');
+  await setInput(0, qty);
+  const btnText = await clickBuyButton();
+  await new Promise(r => setTimeout(r, 500)); // let fill settle
+
+  const orders = [];
+
+  // Stop loss — full qty
+  if (sl != null && entryPrice) {
+    const slPrice = roundTick(entryPrice - sl);
+    await placeSellStop(slPrice, qty);
+    orders.push({ type: 'stop_loss', price: slPrice, qty });
+  }
+
+  // Take profits — split qty across levels if multiple
+  if (tp.length > 0 && entryPrice) {
+    const tpQty = tp.length > 1 ? 1 : qty;
+    for (const pts of tp) {
+      const tpPrice = roundTick(entryPrice + pts);
+      await placeSellLimit(tpPrice, tpQty);
+      orders.push({ type: 'take_profit', price: tpPrice, qty: tpQty });
+    }
   }
 
   return {
@@ -129,39 +216,55 @@ export async function buyMarket({ qty = 1, symbol } = {}) {
     action: 'buy_market',
     symbol: sym || 'current',
     qty,
-    submitted_text: result.text,
+    entry_ref: entryPrice,
+    submitted_text: btnText,
+    orders,
   };
 }
 
 /**
- * Place a market sell order for `qty` contracts.
+ * Place a market sell order, optionally with stop loss and take profit(s).
  * @param {object} opts
- * @param {number} [opts.qty=1]
- * @param {string} [opts.symbol]  — e.g. "nq", "NQ1!", "ES1!"
+ * @param {number}   [opts.qty=1]      Number of contracts
+ * @param {string}   [opts.symbol]     e.g. "nq", "NQ1!"
+ * @param {number[]} [opts.tp=[]]      Take profit levels in points below entry (e.g. [10, 15])
+ * @param {number}   [opts.sl]         Stop loss in points above entry (e.g. 15)
  */
-export async function sellMarket({ qty = 1, symbol } = {}) {
+export async function sellMarket({ qty = 1, symbol, tp = [], sl } = {}) {
   const sym = resolveSymbol(symbol);
   if (sym) await setSymbol({ symbol: sym });
+
+  let entryPrice = null;
+  if (tp.length > 0 || sl != null) {
+    const quote = await getQuote({});
+    entryPrice = quote.last ?? quote.close;
+    if (!entryPrice) throw new Error('Could not get current price for TP/SL calculation');
+  }
+
   await ensureTradePanel();
   await clickSellSide();
   await clickOrderTypeTab('Market');
-  await setQty(qty);
+  await setInput(0, qty);
+  const btnText = await clickSellButton();
+  await new Promise(r => setTimeout(r, 500));
 
-  const result = await js(`
-    var btns = document.querySelectorAll('button');
-    for (var i = 0; i < btns.length; i++) {
-      var b = btns[i];
-      if (b.textContent.trim().startsWith('Sell') && b.className.includes('red')) {
-        var txt = b.textContent.trim();
-        b.click();
-        return { clicked: true, text: txt };
-      }
+  const orders = [];
+
+  // Stop loss — full qty
+  if (sl != null && entryPrice) {
+    const slPrice = roundTick(entryPrice + sl);
+    await placeBuyStop(slPrice, qty);
+    orders.push({ type: 'stop_loss', price: slPrice, qty });
+  }
+
+  // Take profits
+  if (tp.length > 0 && entryPrice) {
+    const tpQty = tp.length > 1 ? 1 : qty;
+    for (const pts of tp) {
+      const tpPrice = roundTick(entryPrice - pts);
+      await placeBuyLimit(tpPrice, tpQty);
+      orders.push({ type: 'take_profit', price: tpPrice, qty: tpQty });
     }
-    return { clicked: false };
-  `);
-
-  if (!result || !result.clicked) {
-    throw new Error('Sell submit button not found — is the Trade panel open and a symbol loaded?');
   }
 
   return {
@@ -169,6 +272,8 @@ export async function sellMarket({ qty = 1, symbol } = {}) {
     action: 'sell_market',
     symbol: sym || 'current',
     qty,
-    submitted_text: result.text,
+    entry_ref: entryPrice,
+    submitted_text: btnText,
+    orders,
   };
 }
