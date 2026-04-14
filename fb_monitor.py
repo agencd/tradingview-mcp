@@ -25,7 +25,7 @@ NAP_HOLD_PTS  = 5.0    # pts beyond key level required to count as recovery
 QTY           = 2      # contracts per trade
 
 CLI = ['node', 'src/cli/index.js']
-CWD = '/Users/a.cangencdogus/tradingview-mcp-jackson'
+CWD = '/Users/a.cangencdogus/tradingview-mcp'
 
 # ── LONG SETUPS (Failed Breakdown) ───────────────────────────────────────────
 # Price flushes below key_level → recovers above → holds → BUY

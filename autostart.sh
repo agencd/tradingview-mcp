@@ -2,8 +2,8 @@
 # Waits until 6:00pm ET, runs test buy, then starts FB monitor.
 # All output logged to fb_test.log
 
-LOG=/Users/a.cangencdogus/tradingview-mcp-jackson/fb_test.log
-CWD=/Users/a.cangencdogus/tradingview-mcp-jackson
+LOG=/Users/a.cangencdogus/tradingview-mcp/fb_test.log
+CWD=/Users/a.cangencdogus/tradingview-mcp
 
 echo "[$(date '+%H:%M:%S')] autostart.sh launched — waiting for 6:00pm ET" | tee -a "$LOG"
 

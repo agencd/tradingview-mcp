@@ -7,8 +7,8 @@ After the test, hands off to the real fb_monitor.py.
 import subprocess, json, time, datetime, sys, os
 
 CLI = ['node', 'src/cli/index.js']
-CWD = '/Users/a.cangencdogus/tradingview-mcp-jackson'
-LOG = '/Users/a.cangencdogus/tradingview-mcp-jackson/fb_test.log'
+CWD = '/Users/a.cangencdogus/tradingview-mcp'
+LOG = '/Users/a.cangencdogus/tradingview-mcp/fb_test.log'
 
 def log(msg):
     ts = datetime.datetime.now().strftime('%H:%M:%S')
