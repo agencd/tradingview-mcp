@@ -13,6 +13,23 @@
  *   Sell submit btn  : button where text starts "Sell" and className includes "red"
  */
 import { evaluate } from '../connection.js';
+import { setSymbol } from './chart.js';
+
+// ─── symbol normalizer ─────────────────────────────────────────────────────
+
+const ALIAS = {
+  es: 'ES1!', nq: 'NQ1!', ym: 'YM1!', rty: 'RTY1!',
+  cl: 'CL1!', gc: 'GC1!', si: 'SI1!', ng: 'NG1!',
+  zb: 'ZB1!', zn: 'ZN1!', zf: 'ZF1!',
+  eur: 'EURUSD', gbp: 'GBPUSD', jpy: 'USDJPY',
+  spy: 'SPY', qqq: 'QQQ', iwm: 'IWM',
+};
+
+function resolveSymbol(raw) {
+  if (!raw) return null;
+  const key = raw.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return ALIAS[key] || raw.toUpperCase();
+}
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
@@ -78,9 +95,13 @@ async function setQty(qty) {
 
 /**
  * Place a market buy order for `qty` contracts.
- * Returns { success, action, qty, submitted_text }
+ * @param {object} opts
+ * @param {number} [opts.qty=1]
+ * @param {string} [opts.symbol]  — e.g. "nq", "NQ1!", "ES1!"
  */
-export async function buyMarket({ qty = 1 } = {}) {
+export async function buyMarket({ qty = 1, symbol } = {}) {
+  const sym = resolveSymbol(symbol);
+  if (sym) await setSymbol({ symbol: sym });
   await ensureTradePanel();
   await clickBuySide();
   await clickOrderTypeTab('Market');
@@ -106,6 +127,7 @@ export async function buyMarket({ qty = 1 } = {}) {
   return {
     success: true,
     action: 'buy_market',
+    symbol: sym || 'current',
     qty,
     submitted_text: result.text,
   };
@@ -113,9 +135,13 @@ export async function buyMarket({ qty = 1 } = {}) {
 
 /**
  * Place a market sell order for `qty` contracts.
- * Returns { success, action, qty, submitted_text }
+ * @param {object} opts
+ * @param {number} [opts.qty=1]
+ * @param {string} [opts.symbol]  — e.g. "nq", "NQ1!", "ES1!"
  */
-export async function sellMarket({ qty = 1 } = {}) {
+export async function sellMarket({ qty = 1, symbol } = {}) {
+  const sym = resolveSymbol(symbol);
+  if (sym) await setSymbol({ symbol: sym });
   await ensureTradePanel();
   await clickSellSide();
   await clickOrderTypeTab('Market');
@@ -141,6 +167,7 @@ export async function sellMarket({ qty = 1 } = {}) {
   return {
     success: true,
     action: 'sell_market',
+    symbol: sym || 'current',
     qty,
     submitted_text: result.text,
   };
