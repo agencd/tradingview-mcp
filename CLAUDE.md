@@ -127,3 +127,46 @@ Claude Code ←→ MCP Server (stdio) ←→ CDP (localhost:9222) ←→ Trading
 ```
 
 Pine graphics path: `study._graphics._primitivesCollection.dwglines.get('lines').get(false)._primitivesDataById`
+
+---
+
+## FB Monitor — Adam's Strategy (TradeCompanion Newsletter)
+
+### Overview
+`fb_monitor.py` runs 24/7 watching ES futures for Failed Breakdown long setups based on Adam's daily email levels. Fully automated — no user confirmation needed.
+
+### How to update levels for a new session
+1. User provides new levels from Adam's email
+2. Update `LONG_SETUPS` in `fb_monitor.py`
+3. `pkill -f fb_monitor.py`
+4. `cd /Users/a.cangencdogus/tradingview-mcp && python3 fb_monitor.py >> fb_test.log 2>&1 &`
+5. `tail -5 fb_test.log` to confirm running
+
+### Entry criteria (Failed Breakdown — longs only)
+- Price flushes **below** key_level by ≥ 3pts → FLUSHING state
+- Price recovers **above** key_level → RECOVERING state
+- Price holds above key_level+5pts for **~2 minutes** (15 polls × 8s) → TRIGGERED
+- BUY 2 contracts at market
+
+### Order lifecycle after entry
+1. Market buy 2 contracts
+2. Sell Stop ×2 at `stop` price (stop loss)
+3. Sell Limit ×1 at `tp1` price
+4. Sell Limit ×1 at `tp2` price
+5. Orphan guard: if position goes flat unexpectedly → cancel all open orders
+
+### Level structure
+```python
+LONG_SETUPS = [
+    {"label": "LONG 1 — XXXX", "key_level": 0000.0, "stop": 0000.0, "tp1": 0000.0, "tp2": 0000.0, "active": True},
+]
+```
+
+### Cancel selector (verified)
+`button[title="Cancel"]` — NOT `button[title="Cancel order"]`
+`fb_monitor.py` already checks both.
+
+### Status
+- Paper trading (TradingView paper account) — switching to live broker soon
+- MCP: `agencd/tradingview-mcp` connected via `~/.claude/.mcp.json`
+- Logs: `fb_test.log`
