@@ -7,11 +7,11 @@ export function registerTradingTools(server) {
     'tv_buy_market',
     'Place a market BUY order in TradingView. Optionally switch to a different symbol first (e.g. symbol="nq" switches to NQ1! before buying).',
     {
-      qty:    z.coerce.number().int().positive().optional().describe('Number of contracts/shares (default 1)'),
+      quantity: z.coerce.number().int().positive().optional().describe('Number of contracts/shares (default 1)'),
       symbol: z.string().optional().describe('Symbol to trade, e.g. "nq", "es", "NQ1!", "AAPL". Omit to use current chart symbol.'),
     },
-    async ({ qty, symbol }) => {
-      try { return jsonResult(await core.buyMarket({ qty: qty ?? 1, symbol })); }
+    async ({ quantity, symbol }) => {
+      try { return jsonResult(await core.buyMarket({ qty: quantity ?? 1, symbol })); }
       catch (err) { return jsonResult({ success: false, error: err.message }, true); }
     }
   );
@@ -20,11 +20,11 @@ export function registerTradingTools(server) {
     'tv_sell_market',
     'Place a market SELL order in TradingView. Optionally switch to a different symbol first (e.g. symbol="nq" switches to NQ1! before selling).',
     {
-      qty:    z.coerce.number().int().positive().optional().describe('Number of contracts/shares (default 1)'),
+      quantity: z.coerce.number().int().positive().optional().describe('Number of contracts/shares (default 1)'),
       symbol: z.string().optional().describe('Symbol to trade, e.g. "nq", "es", "NQ1!", "AAPL". Omit to use current chart symbol.'),
     },
-    async ({ qty, symbol }) => {
-      try { return jsonResult(await core.sellMarket({ qty: qty ?? 1, symbol })); }
+    async ({ quantity, symbol }) => {
+      try { return jsonResult(await core.sellMarket({ qty: quantity ?? 1, symbol })); }
       catch (err) { return jsonResult({ success: false, error: err.message }, true); }
     }
   );
